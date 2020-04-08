@@ -1,7 +1,5 @@
 import { WebResourceTiming } from '../webResourceTiming'
 import { request } from 'express'
-console.log(WebResourceTiming)
-
 export default class WebResourceTimingReport {
   /**
    * 

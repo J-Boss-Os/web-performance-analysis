@@ -4,7 +4,7 @@ export default class WebResourceTiming {
    * @param {*} param0 
    * @param {String} param0.globalGetType 获取条目的类型  EntryType => ResourceTimingEntryTyped对象类型 ; FormatData => 格式化后的类型 ; OriginData => 没有处理过的源数据
    */
-  constructor({ globalFixed = 2, globalGetType = 'EntryType' }) {
+  constructor({ globalFixed = 2, globalGetType = 'EntryType' } = {}) {
     this.onEventListener = {
       error: null,
       resource: null
@@ -39,17 +39,17 @@ export default class WebResourceTiming {
     this.continuedPublish = true
     const { globalFixed, globalGetType } = this
     while (this.waitPublish.length) {
-      this.trigger('receive', (err, { cb, opt }) => {
+      this.trigger('resource', (err, { cb, opt }) => {
         let origin = this.waitPublish.shift()
         let type = (opt && opt.getType) || getType || globalGetType || 'EntryType'
         if (type === 'OriginData') {
-          return cb(err, origin)
+          return cb(err, origin, opt)
         }
         const entry = new ResourceTimingEntryType(origin, { globalFixed })
         if (type === 'FormatData') {
-          cb(err, entry.getFormatData())
+          cb(err, entry.getFormatData(), opt)
         }
-        else cb(err, entry)
+        else cb(err, entry, opt)
       })
     }
     this.continuedPublish = false
@@ -72,6 +72,7 @@ export default class WebResourceTiming {
     let intervalGetDataWorker = this.intervalGetDataWorker
     if (intervalGetDataWorker) clearInterval(intervalGetDataWorker)
   }
+
   /**
    * 触发事件
    */
@@ -79,7 +80,7 @@ export default class WebResourceTiming {
     const eventList = this.onEventListener[eventName] || []
     if (!eventList || !eventList.length) return eventListener(new Error(`没有找到【${eventName}】的事件监者`), null)
     eventList.map((event) => {
-      eventListener(null, event)
+      eventListener(null, event, opt)
     })
   }
   /**
@@ -108,7 +109,6 @@ export default class WebResourceTiming {
     return this;
   }
 }
-
 /**
  * 资源处理
  */
@@ -137,7 +137,7 @@ export class ResourceTimingEntryType {
    * @param {*} b // 第二个数
    * @param {*} type // 1 加 2 减 3 除 4 乘
    */
-  count(a, b, { type = 1, file = null } = {}) {
+  count(a, b, { type = 1, fixed = null } = {}) {
     a = a || 0
     b = b || 0
     let result = 0
@@ -157,30 +157,29 @@ export class ResourceTimingEntryType {
         result = ((a * maxDecimal) / (b * maxDecimal)) / maxDecimal
         break;
     }
-    return this.formatNumberDecimal(result, { file })
+    return this.formatNumberDecimal(result, { fixed })
   }
 
   /**
    * 格式化数字的小数
    */
-  formatNumberDecimal(number = 0, { file = null } = {}) {
+  formatNumberDecimal(number = 0, { fixed = null } = {}) {
     if (Math.round(number) === number) return number
-    return Number(number.toFixed(file || this.globalFixed))
+    return Number(number.toFixed(fixed || this.globalFixed))
   }
-
   /**
    * 格式化大小
    * @param {*} unit 单位：B KB MB GB  不传自动选择合适的显示
    */
-  formatFileSize(size, { unit = null, isSplice = null } = {}) {
+  formatFileSize(size, { unit = null, isSplice = null, fixed = null } = {}) {
     if (size >= 1073741824 || unit === 'GB') {
-      size = this.count(size, 1073741824, { type: 4 })
+      size = this.count(size, 1073741824, { type: 4, fixed })
       unit = 'GB'
     } else if (size >= 1048576 || unit === 'MB') {
-      size = this.count(size, 1048576, { type: 4 })
+      size = this.count(size, 1048576, { type: 4, fixed })
       unit = 'MB'
     } else if (size >= 1024 || unit === 'KB') {
-      size = this.count(size, 1024, { type: 4 })
+      size = this.count(size, 1024, { type: 4, fixed })
       unit = 'KB'
     } else {
       unit = 'B'
@@ -192,24 +191,6 @@ export class ResourceTimingEntryType {
     }
   }
   /**
-   * 获取发起类型
-   */
-  getInitiatorType() {
-    return this.initiatorType
-  }
-  /**
-   * 获取开始时间
-   */
-  getStartTime() {
-    return this.startTime
-  }
-  /**
-   * 获取结束时间
-   */
-  getEndTime() {
-    return this.responseEnd
-  }
-  /**
    * 获取总耗时
    */
   getDurationTime({ fixed = null } = {}) {
@@ -219,29 +200,21 @@ export class ResourceTimingEntryType {
    * 获取名称
    * @param {*} param0
    */
-  getName({ type = 'file' } = {}) {
-    switch (type) {
-      case 'file':
-        return this.path.replace(/(^.*\/)(.*$)/, '$2')
-        break;
-        return this.path
+  getName() {
+    if (this.initiatorType === 'xmlhttprequest') {
+      return this.path
+    } else {
+      return this.path.replace(/(^.*\/)(.*$)/, '$2')
     }
-  }
-  /**
-   * 获取url路径
-   */
-  getPath() {
-    return this.path
   }
   /**
    * 获取类型
    */
-  getType({ type = 'file' } = {}) {
-    switch (type) {
-      case 'file':
-        return this.path.replace(/(^.*)(\..*$)/, '$2')
-        break;
-        return this.path
+  getType() {
+    if (this.initiatorType !== 'xmlhttprequest') {
+      return this.path.replace(/(^.*)(\..*$)/, '$2')
+    } else {
+      return 'xmlhttprequest'
     }
   }
   /**
@@ -266,7 +239,7 @@ export class ResourceTimingEntryType {
    * 获取SSL连接时间
    */
   getSecureConnectionTime({ fixed = null } = {}) {
-    return this.count(this.requestStart, this.secureConnectionStart, { fixed })
+    return this.count(this.connectEnd, this.secureConnectionStart, { fixed })
   }
   /**
    * 获取TCP连接时间
@@ -284,22 +257,21 @@ export class ResourceTimingEntryType {
    * 响应时间
    * @param {*} param0 
    */
-  getResponseTime({ fixed = null } = {}) {
+  getResponseTime({ fixed = null, fixed = null } = {}) {
     return this.count(this.responseEnd, this.responseStart, { fixed })
   }
   /**
    * 获取传输的文件大小
    */
-  getTransferSize({ isSplice = null } = {}) {
-    console.log(this)
-    return this.formatFileSize(this.transferSize, { isSplice })
+  getTransferSize({ isSplice = null, fixed = null } = {}) {
+    return this.formatFileSize(this.transferSize, { isSplice, fixed })
   }
   /**
    * 获取压缩大小
    * @param {*} param0 
    */
-  getCompressionSize({ isSplice = null } = {}) {
-    return this.formatFileSize(this.count(this.decodedBodySize, encodedBodySize), { isSplice })
+  getCompressionSize({ isSplice = null, fixed = null } = {}) {
+    return this.formatFileSize(this.count(this.decodedBodySize, encodedBodySize), { isSplice, fixed })
   }
   /**
    * 获取源数据
@@ -322,6 +294,7 @@ export class ResourceTimingEntryType {
       transferSize: this.getTransferSize(),
       name: this.getName(),
       url: this.url,
+      query: this.query,
       path: this.path,
       type: this.getType(),
       initiatorType: this.initiatorType,
@@ -330,5 +303,3 @@ export class ResourceTimingEntryType {
     }
   }
 }
-
-export const InitiatorType = []
